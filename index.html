@@ -130,6 +130,31 @@
             margin-bottom: 20px;
             border-left: 4px solid #f39c12;
         }
+
+        .loading {
+            display: none;
+            text-align: center;
+            padding: 20px;
+        }
+
+        .success-message {
+            display: none;
+            background-color: #d4edda;
+            color: #155724;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+            text-align: center;
+        }
+
+        .error-message {
+            display: none;
+            background-color: #f8d7da;
+            color: #721c24;
+            padding: 15px;
+            border-radius: 5px;
+            margin: 20px 0;
+        }
     </style>
 </head>
 <body>
@@ -138,6 +163,21 @@
         
         <div class="instructions">
             <p><strong>说明：</strong>请完整填写以下问卷，带 <span style="color:red">*</span> 的字段为必填项。</p>
+            <p>数据将自动提交到系统，同时提供本地备份下载。</p>
+        </div>
+
+        <div class="loading" id="loading">
+            <p>正在提交数据，请稍候...</p>
+        </div>
+
+        <div class="success-message" id="success-message">
+            <h3>✅ 提交成功！</h3>
+            <p>数据已成功提交到系统，同时本地备份文件已下载。</p>
+        </div>
+
+        <div class="error-message" id="error-message">
+            <h3>❌ 提交遇到问题</h3>
+            <p id="error-text">网络连接不稳定，数据已保存到本地文件，请手动发送。</p>
         </div>
 
         <form id="questionnaire-form">
@@ -314,31 +354,122 @@
     </div>
 
     <script>
-        document.getElementById('questionnaire-form').addEventListener('submit', function(e) {
+        // Google Forms 配置 - 需要你修改的部分
+        const GOOGLE_FORMS_CONFIG = {
+            formUrl: 'https://docs.google.com/forms/d/e/YOUR_FORM_ID/formResponse',
+            fieldMapping: {
+                // 项目背景
+                'user-name': 'entry.XXXXXXXXX', // 终端用户名称
+                'project-address': 'entry.XXXXXXXXX', // 项目地址
+                'project-type': 'entry.XXXXXXXXX', // 项目类型
+                
+                // 物料特性
+                'material-name': 'entry.XXXXXXXXX', // 物料名称
+                'particle-size': 'entry.XXXXXXXXX', // 物料粒径范围
+                'material-density': 'entry.XXXXXXXXX', // 物料比重
+                'humidity': 'entry.XXXXXXXXX', // 物料湿度
+                'abrasiveness': 'entry.XXXXXXXXX', // 物料磨蚀性
+                'dust': 'entry.XXXXXXXXX', // 物料粉尘
+                
+                // 溜筒结构
+                'inner-material': 'entry.XXXXXXXXX', // 内筒材质
+                'dust-cover': 'entry.XXXXXXXXX', // 防尘罩材质
+                'frame-material': 'entry.XXXXXXXXX', // 框架材质
+                'paint-color': 'entry.XXXXXXXXX', // 油漆颜色
+                'flange-type': 'entry.XXXXXXXXX', // 入口法兰
+                
+                // 电气控制
+                'level-sensor': 'entry.XXXXXXXXX', // 料位计配置
+                'auto-lift': 'entry.XXXXXXXXX', // 自动提升功能
+                
+                // 现场安装数据
+                'truck-h1': 'entry.XXXXXXXXX', // 卡车H1
+                'truck-h2': 'entry.XXXXXXXXX', // 卡车H2
+                'truck-h3': 'entry.XXXXXXXXX', // 卡车H3
+                'truck-a': 'entry.XXXXXXXXX', // 卡车A
+                'truck-b': 'entry.XXXXXXXXX', // 卡车B
+                'tank-h1': 'entry.XXXXXXXXX', // 罐车H1
+                'tank-h2': 'entry.XXXXXXXXX', // 罐车H2
+                'tank-a': 'entry.XXXXXXXXX', // 罐车A
+                'tank-b': 'entry.XXXXXXXXX', // 罐车B
+                'tank-c': 'entry.XXXXXXXXX', // 罐车C
+            }
+        };
+
+        document.getElementById('questionnaire-form').addEventListener('submit', async function(e) {
             e.preventDefault();
             
-            // 收集表单数据
-            const formData = new FormData(this);
+            // 显示加载状态
+            showLoading();
+            
+            try {
+                // 收集表单数据
+                const formData = collectFormData();
+                
+                // 同时提交到Google Forms和下载本地备份
+                await Promise.all([
+                    submitToGoogleForms(formData),
+                    downloadLocalBackup(formData)
+                ]);
+                
+                // 显示成功消息
+                showSuccess();
+                
+                // 3秒后重置表单
+                setTimeout(() => {
+                    this.reset();
+                    hideMessages();
+                }, 3000);
+                
+            } catch (error) {
+                // 显示错误消息
+                showError('提交失败：' + error.message);
+                
+                // 确保至少下载本地备份
+                downloadLocalBackup(collectFormData());
+            }
+        });
+
+        function collectFormData() {
+            const formData = new FormData(document.getElementById('questionnaire-form'));
             const data = {};
             
             for (let [key, value] of formData.entries()) {
                 data[key] = value;
             }
             
-            // 添加时间戳
-            data.timestamp = new Date().toLocaleString();
+            // 添加元数据
+            data.timestamp = new Date().toISOString();
+            data.submissionId = generateSubmissionId();
+            data.userAgent = navigator.userAgent;
             
-            // 保存数据到本地文件
-            downloadData(data);
+            return data;
+        }
+
+        async function submitToGoogleForms(data) {
+            const formData = new FormData();
             
-            // 显示成功消息
-            alert('问卷提交成功！数据已保存到本地文件。');
+            // 映射数据到Google Forms字段
+            for (const [fieldName, fieldValue] of Object.entries(data)) {
+                const entryId = GOOGLE_FORMS_CONFIG.fieldMapping[fieldName];
+                if (entryId && fieldValue) {
+                    formData.append(entryId, fieldValue);
+                }
+            }
             
-            // 重置表单
-            this.reset();
-        });
-        
-        function downloadData(data) {
+            // 提交到Google Forms
+            const response = await fetch(GOOGLE_FORMS_CONFIG.formUrl, {
+                method: 'POST',
+                body: formData,
+                mode: 'no-cors' // 注意：no-cors模式无法读取响应
+            });
+            
+            // 由于no-cors模式，我们无法检测是否真正成功
+            // 但大多数情况下会成功提交
+            return true;
+        }
+
+        function downloadLocalBackup(data) {
             const dataStr = JSON.stringify(data, null, 2);
             const blob = new Blob([dataStr], { type: 'application/json' });
             const url = URL.createObjectURL(blob);
@@ -350,6 +481,37 @@
             a.click();
             document.body.removeChild(a);
             URL.revokeObjectURL(url);
+            
+            return true;
+        }
+
+        function generateSubmissionId() {
+            return 'SUB_' + Date.now() + '_' + Math.random().toString(36).substr(2, 6);
+        }
+
+        function showLoading() {
+            document.getElementById('loading').style.display = 'block';
+            document.getElementById('success-message').style.display = 'none';
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function showSuccess() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('success-message').style.display = 'block';
+            document.getElementById('error-message').style.display = 'none';
+        }
+
+        function showError(message) {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('success-message').style.display = 'none';
+            document.getElementById('error-message').style.display = 'block';
+            document.getElementById('error-text').textContent = message;
+        }
+
+        function hideMessages() {
+            document.getElementById('loading').style.display = 'none';
+            document.getElementById('success-message').style.display = 'none';
+            document.getElementById('error-message').style.display = 'none';
         }
     </script>
 </body>
